@@ -4,7 +4,7 @@
  * Comprehensive in-memory data for CaseLens (10x more data)
  */
 
-import { CourtCase, UserProfile, Precedent, ModelMetricComparison, FeatureImportance, SystemStatusTelemetry } from "./types";
+import { CourtCase, UserProfile, Precedent, ModelMetricComparison, FeatureImportance, SystemStatusTelemetry, CaseStatus } from "./types";
 
 // Demo Users
 export const DEMO_USERS: UserProfile[] = [
@@ -120,7 +120,7 @@ function generateCases(): CourtCase[] {
     const priority = Math.min(98, Math.max(45, 50 + (topSim * 35) + (hearings * 0.8)));
     
     const complexity = hearings > 20 ? "High" : hearings > 10 ? "Medium" : "Low";
-    const statusOptions = ["pending", "hearing", "reserved", "disposed"];
+    const statusOptions = ["pending", "hearing", "reserved", "disposed"] as CaseStatus[];
     const status = statusOptions[Math.floor(Math.random() * statusOptions.length)];
 
     const caseNo = `${caseTypes[caseTypeIdx]}. ${100 + i}/202${Math.floor(Math.random() * 4) + 1}`;
@@ -144,9 +144,6 @@ function generateCases(): CourtCase[] {
       top1Similarity: Number(topSim.toFixed(3)),
       meanTop5Similarity: Number(meanSim.toFixed(3)),
       countAboveThreshold: Math.floor(Math.random() * 4) + 1,
-      similaritySpread: 0.06,
-      precedentAgeMean: 2.5 + Math.random() * 3,
-      outcomeAgreement: 0.7 + Math.random() * 0.25,
       matchedPrecedentIds: [`prec-${Math.floor(Math.random() * 20) + 1}`, `prec-${Math.floor(Math.random() * 20) + 1}`],
       prediction: {
         predictedDays: Math.round(predictedDays),
@@ -292,7 +289,7 @@ function generateJudgments(): Precedent[] {
   ];
 
   // Generate 195 more precedents
-  const additionalPrecedents = [
+  const additionalPrecedents: Array<{ title: string; citation: string; court: string; outcome: Precedent["outcome"] }> = [
     { title: "Arnesh Kumar vs State of Bihar", citation: "(2014) 8 SCC 273", court: "Supreme Court of India", outcome: "Allowed" },
     { title: "Lalita Kumari vs Govt of UP", citation: "(2014) 2 SCC 1", court: "Supreme Court of India", outcome: "Allowed" },
     { title: "Shayara Bano vs Union of India", citation: "(2017) 9 SCC 1", court: "Supreme Court of India", outcome: "Allowed" },
@@ -386,11 +383,11 @@ export function getModelMetrics(): { metrics: ModelMetricComparison[]; featureIm
       { metric: "Coverage (%)", metadataOnly: 89.0, withPrecedents: 94.5, improvementPct: 6.2, unit: "percent" },
     ],
     featureImportance: [
-      { rank: 1, featureName: "top1_similarity", category: "Precedent Intelligence", meanShap: 0.32, direction: "Reduces delay variance" },
-      { rank: 2, featureName: "hearings_count", category: "Case Trajectory", meanShap: 0.24, direction: "Increases delay" },
-      { rank: 3, featureName: "mean_top5_similarity", category: "Precedent Intelligence", meanShap: 0.18, direction: "Reduces delay variance" },
-      { rank: 4, featureName: "outcome_agreement", category: "Precedent Intelligence", meanShap: 0.14, direction: "Reduces delay variance" },
-      { rank: 5, featureName: "precedent_age_mean", category: "Precedent Intelligence", meanShap: 0.12, direction: "Increases delay" },
+      { rank: 1, featureName: "top1_similarity", category: "Precedent Intelligence", meanShap: 0.32, direction: "Reduces delay variance", description: "Similarity to the nearest matching precedent" },
+      { rank: 2, featureName: "hearings_count", category: "Procedural", meanShap: 0.24, direction: "Increases delay", description: "Number of hearings already conducted" },
+      { rank: 3, featureName: "mean_top5_similarity", category: "Precedent Intelligence", meanShap: 0.18, direction: "Reduces delay variance", description: "Mean similarity across the five nearest precedents" },
+      { rank: 4, featureName: "outcome_agreement", category: "Precedent Intelligence", meanShap: 0.14, direction: "Reduces delay variance", description: "Agreement in outcomes across matching precedents" },
+      { rank: 5, featureName: "precedent_age_mean", category: "Case Metadata", meanShap: 0.12, direction: "Increases delay", description: "Average age of the matching precedents" },
     ],
   };
 }

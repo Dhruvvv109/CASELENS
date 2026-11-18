@@ -49,7 +49,7 @@ export interface Precedent {
   court: string;
   caseType: string;
   judgmentDate: string;
-  outcome: "Allowed" | "Dismissed" | "Disposed" | "Remanded" | "Quashed";
+  outcome: "Allowed" | "Dismissed" | "Disposed" | "Remanded" | "Quashed" | "Pending";
   bench: string;
   similarityScore: number;
   keywordScore: number;
