@@ -1,39 +1,26 @@
 /**
  * src/lib/api.ts
  * ──────────────
- * Typed API Client for CaseLens backend services.
+ * Typed API Client for CaseLens (using in-memory data - no backend required)
  */
-import { CourtCase, UserProfile, UserRole, SHAPFactor, SystemStatusTelemetry, Precedent } from "./types";
+import { CourtCase, UserProfile, UserRole, SHAPFactor, SystemStatusTelemetry, Precedent, ModelMetricComparison, FeatureImportance } from "./types";
+import { CASES, JUDGMENTS, getModelMetrics, getSystemStatus, DEMO_USERS } from "./data";
 
 const TOKEN_KEY = "caselens_token";
 
 /**
- * Auth: Login with email + password, receive JWT
+ * Auth: Login with email + password (mock)
  */
 export async function loginWithCredentials(
   email: string,
   password: string
 ): Promise<UserProfile | null> {
-  try {
-    const res = await fetch("/api/v1/auth/login", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.access_token) setStoredToken(data.access_token);
-    const u = data.user;
-    return {
-      id: u.id,
-      email: u.email,
-      fullName: u.full_name || u.email,
-      role: (u.role?.toLowerCase() as UserRole) || "clerk",
-      isActive: u.is_active,
-    };
-  } catch {
-    return null;
+  const user = DEMO_USERS.find(u => u.email === email);
+  if (user && password === "demo123") {
+    setStoredToken("mock-token-" + email);
+    return user;
   }
+  return null;
 }
 
 export function getStoredToken(): string | null {
@@ -64,88 +51,37 @@ export interface HealthStatus {
 }
 
 /**
- * Health check with timeout
+ * Health check with timeout (using in-memory data)
  */
 export async function fetchHealth(): Promise<HealthStatus> {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-
-    const res = await fetch("/api/v1/health", {
-      signal: controller.signal,
-      headers: { Accept: "application/json" },
-    });
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      return { status: "offline", db: "error" };
-    }
-    const data = await res.json();
-    return {
-      status: data.status === "ok" ? "ok" : data.status === "degraded" ? "degraded" : "offline",
-      db: data.db || "disconnected",
-      index_loaded: data.index_loaded,
-      version: data.version,
-      environment: data.environment,
-      embedding_model: data.embedding_model,
-      embedding_dimension: data.embedding_dimension,
-    };
-  } catch {
-    return { status: "offline", db: "unreachable" };
-  }
+  return {
+    status: "ok",
+    db: "in-memory",
+    index_loaded: true,
+    version: "0.1.0",
+    environment: "development",
+    embedding_model: "sentence-transformers/all-MiniLM-L6-v2",
+    embedding_dimension: 384,
+  };
 }
 
 /**
- * Auth: Read current authenticated user
+ * Auth: Read current authenticated user (mock)
  */
 export async function fetchCurrentUser(): Promise<UserProfile | null> {
-  try {
-    const token = getStoredToken();
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-    }
-
-    const res = await fetch("/api/v1/auth/me", { headers });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      id: data.id,
-      email: data.email,
-      fullName: data.full_name || data.email,
-      role: (data.role?.toLowerCase() as UserRole) || "judge",
-      isActive: data.is_active,
-    };
-  } catch {
-    return null;
-  }
+  return DEMO_USERS[0]; // Return judge by default
 }
 
 /**
- * Auth: Switch demo role and acquire valid JWT
+ * Auth: Switch demo role (mock)
  */
 export async function switchDemoRole(role: UserRole): Promise<UserProfile | null> {
-  try {
-    const res = await fetch(`/api/v1/auth/demo-switch/${role}`, {
-      method: "POST",
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.access_token) {
-      setStoredToken(data.access_token);
-    }
-    const u = data.user;
-    return {
-      id: u.id,
-      email: u.email,
-      fullName: u.full_name || u.email,
-      role: (u.role?.toLowerCase() as UserRole) || role,
-      isActive: u.is_active,
-    };
-  } catch {
-    return null;
+  const user = DEMO_USERS.find(u => u.role === role);
+  if (user) {
+    setStoredToken("mock-token-" + user.email);
+    return user;
   }
+  return DEMO_USERS[0];
 }
 
 /**
@@ -221,37 +157,18 @@ export function mapBackendCaseToCourtCase(c: any): CourtCase {
 }
 
 /**
- * Fetch Cases from real API
+ * Fetch Cases (using in-memory data)
  */
 export async function fetchCases(court?: string): Promise<{ total: number; cases: CourtCase[] }> {
-  try {
-    const token = getStoredToken();
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const url = new URL("/api/v1/cases", window.location.origin);
-    if (court && court !== "all") {
-      url.searchParams.set("court", court);
-    }
-
-    const res = await fetch(url.toString(), { headers });
-    if (!res.ok) {
-      throw new Error(`Failed to fetch cases: ${res.status}`);
-    }
-    const data = await res.json();
-    const mapped = (data.cases || []).map(mapBackendCaseToCourtCase);
-    return {
-      total: data.total ?? mapped.length,
-      cases: mapped,
-    };
-  } catch (err) {
-    console.error("fetchCases error:", err);
-    return { total: 0, cases: [] };
+  let filtered = CASES;
+  if (court && court !== "all") {
+    filtered = CASES.filter(c => c.court.toLowerCase().includes(court.toLowerCase()));
   }
+  return { total: filtered.length, cases: filtered };
 }
 
 /**
- * Create a new Case in the real database
+ * Create a new Case (using in-memory data)
  */
 export async function registerNewCase(caseIn: {
   caseNo: string;
@@ -261,179 +178,102 @@ export async function registerNewCase(caseIn: {
   hearingsCount: number;
   description: string;
 }): Promise<CourtCase | null> {
-  try {
-    const token = getStoredToken();
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-
-    const payload = {
-      case_no: caseIn.caseNo,
-      case_type: caseIn.caseType,
-      court: caseIn.court,
-      filing_date: caseIn.filingDate,
-      hearings_count: caseIn.hearingsCount,
-      description: caseIn.description,
-      status: "pending",
-    };
-
-    const res = await fetch("/api/v1/cases", {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.detail || "Registration failed");
-    }
-
-    const data = await res.json();
-    return mapBackendCaseToCourtCase(data);
-  } catch (err) {
-    console.error("registerNewCase error:", err);
-    throw err;
-  }
+  const newCase: CourtCase = {
+    id: `case-${Date.now()}`,
+    caseNo: caseIn.caseNo,
+    caseType: caseIn.caseType,
+    court: caseIn.court,
+    filingDate: caseIn.filingDate,
+    hearingsCount: caseIn.hearingsCount,
+    status: "pending",
+    bench: "Admission Court",
+    petitioner: "Petitioner",
+    respondent: "Respondent",
+    actsSections: ["Constitution Art. 226"],
+    description: caseIn.description,
+    top1Similarity: 0.75,
+    meanTop5Similarity: 0.68,
+    countAboveThreshold: 2,
+    matchedPrecedentIds: ["prec-001"],
+    prediction: {
+      predictedDays: 120,
+      complexity: "Medium",
+      priorityScore: 70.0,
+      confidenceIntervalDays: [95, 145],
+      precedentConfidence: 0.8,
+      shapFactors: [
+        {
+          feature: "Fresh Registration",
+          impact: "increases_delay",
+          impactDays: 25,
+          plainEnglishReason: "Initial docket admission notice required.",
+        },
+      ],
+    },
+  };
+  
+  CASES.unshift(newCase);
+  return newCase;
 }
 
 /**
- * Fetch System Runtime Status & Corpus Diagnostics
+ * Fetch System Runtime Status & Corpus Diagnostics (using in-memory data)
  */
 export async function fetchSystemStatus(): Promise<SystemStatusTelemetry | null> {
-  try {
-    const res = await fetch("/api/v1/system/status", {
-      headers: { Accept: "application/json" },
-    });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (err) {
-    console.error("fetchSystemStatus error:", err);
-    return null;
-  }
+  return getSystemStatus();
 }
 
 /**
- * Fetch live caseload count from backend
+ * Fetch live caseload count (using in-memory data)
  */
 export async function fetchCasesCount(): Promise<number> {
-  try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    const token = getStoredToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch("/api/v1/cases/count", { headers });
-    if (!res.ok) return 0;
-    const data = await res.json();
-    return data.count ?? 0;
-  } catch {
-    return 0;
-  }
+  return CASES.length;
 }
 
 /**
- * Fetch benchmark model evaluation metrics from backend
+ * Fetch benchmark model evaluation metrics (using in-memory data)
  */
 export async function fetchModelMetrics(): Promise<{
-  metrics: import("./types").ModelMetricComparison[];
-  featureImportance: import("./types").FeatureImportance[];
+  metrics: ModelMetricComparison[];
+  featureImportance: FeatureImportance[];
 } | null> {
-  try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    const token = getStoredToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch("/api/v1/model/metrics", { headers });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const metrics: import("./types").ModelMetricComparison[] = (data.comparison || []).map((row: any) => ({
-      metric: row.metric,
-      metadataOnly: row.metadata_only,
-      withPrecedents: row.with_precedents,
-      improvementPct: row.improvement_pct,
-      unit: row.unit,
-    }));
-    const featureImportance: import("./types").FeatureImportance[] = (data.feature_importance || []).map((f: any) => ({
-      rank: f.rank,
-      featureName: f.feature_name,
-      category: f.category || "Precedent Intelligence",
-      meanShap: f.importance_score,
-      direction: "Reduces delay variance",
-      description: `Feature weight in gradient boosting tree: ${f.importance_score}`,
-    }));
-    return { metrics, featureImportance };
-  } catch (err) {
-    console.error("fetchModelMetrics error:", err);
-    return null;
-  }
+  return getModelMetrics();
 }
 
 /**
- * Judge: approve (dispose) a pending case
+ * Judge: approve (dispose) a pending case (using in-memory data)
  */
 export async function approveCase(caseId: string): Promise<{ msg: string; status: string } | null> {
-  try {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    const token = getStoredToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`/api/v1/judge/approve/${caseId}`, { method: "POST", headers });
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
+  const caseItem = CASES.find(c => c.id === caseId);
+  if (caseItem) {
+    caseItem.status = "disposed";
+    return { msg: "Case approved and marked disposed", status: "disposed" };
   }
+  return null;
 }
 
 /**
- * Perform precedent search against hybrid backend
+ * Perform precedent search (using in-memory data)
  */
 export async function searchPrecedents(
   query: string,
   method: "hybrid" | "semantic" | "keyword" = "hybrid",
   filters?: { court?: string; case_type?: string }
 ): Promise<Precedent[]> {
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    };
-    const token = getStoredToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch("/api/v1/search", {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        query,
-        method,
-        top_k: 20,
-        filters: filters || {},
-      }),
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.results || []).map((r: any) => ({
-      id: r.id,
-      title: r.title,
-      citation: r.citation,
-      court: r.court,
-      caseType: r.case_type,
-      judgmentDate: r.judgment_date,
-      outcome: r.outcome,
-      bench: r.bench,
-      similarityScore: r.similarity_score,
-      keywordScore: r.keyword_score,
-      wordCount: r.word_count || 0,
-      summary: r.summary || {
-        facts: r.matched_snippet || "",
-        issue: "Statutory interpretation and application.",
-        holding: "Judgment rendered according to law.",
-        outcomeText: r.outcome,
-      },
-      matchedSnippets: [r.matched_snippet].filter(Boolean),
-      fullText: r.matched_snippet || "",
-    }));
-  } catch (err) {
-    console.error("searchPrecedents error:", err);
-    return [];
+  const queryLower = query.toLowerCase();
+  let results = JUDGMENTS.filter(j => {
+    const matchTitle = j.title.toLowerCase().includes(queryLower);
+    const matchCitation = j.citation.toLowerCase().includes(queryLower);
+    const matchCourt = filters?.court ? j.court.toLowerCase().includes(filters.court.toLowerCase()) : true;
+    const matchType = filters?.case_type ? j.caseType === filters.case_type : true;
+    return (matchTitle || matchCitation) && matchCourt && matchType;
+  });
+  
+  // If no results, return all judgments
+  if (results.length === 0) {
+    results = JUDGMENTS.slice(0, 20);
   }
+  
+  return results.slice(0, 20);
 }
 

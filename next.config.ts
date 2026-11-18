@@ -1,19 +1,6 @@
 import type { NextConfig } from "next";
-
 const nextConfig: NextConfig = {
-  /* config options here */
-  async rewrites() {
-    return [
-      {
-        source: "/api/v1/:path*",
-        destination: `${process.env.BACKEND_URL || "http://localhost:8000"}/api/v1/:path*`,
-      },
-      {
-        source: "/api/search",
-        destination: `${process.env.BACKEND_URL || "http://localhost:8000"}/api/search`,
-      },
-    ];
-  },
+  /* config options here - no backend needed, all data is in-memory */
   cacheComponents: true,
   partialPrefetching: true,
   turbopack: {
@@ -25,5 +12,4 @@ const nextConfig: NextConfig = {
     },
   },
 };
-
 export default nextConfig;
