@@ -45,6 +45,9 @@ export default function CaseLensApp() {
   const [isLoadingCases, setIsLoadingCases] = useState<boolean>(false);
   const [casesError, setCasesError] = useState<string | null>(null);
   const [tableDensity, setTableDensity] = useState<TableDensity>("comfortable");
+  const [isLoadingPrecedents, setIsLoadingPrecedents] = useState<boolean>(false);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>("");
 
   // Tab titles
   useEffect(() => {
@@ -82,9 +85,10 @@ export default function CaseLensApp() {
     initAuth();
   }, []);
 
-  // 2. Load Cases from real API
+  // 2. Load Cases from API route
   const loadCases = useCallback(async (court?: string) => {
     setIsLoadingCases(true);
+    setLoadingMessage("Fetching data from database...");
     setCasesError(null);
     try {
       const res = await fetchCases(court);
@@ -99,6 +103,7 @@ export default function CaseLensApp() {
       setCasesError(err?.message || "Failed to contact registry backend.");
     } finally {
       setIsLoadingCases(false);
+      setLoadingMessage("");
     }
   }, []);
 
@@ -106,26 +111,35 @@ export default function CaseLensApp() {
     loadCases(selectedBench);
   }, [selectedBench, loadCases]);
 
-  // 3. Load Precedents & Model Report metrics from real API
+  // 3. Load Precedents & Model Report metrics from API routes
   useEffect(() => {
+    setIsLoadingPrecedents(true);
+    setLoadingMessage("Loading precedent index...");
     searchPrecedents("Article 21 bail delay", "hybrid").then((res) => {
       setPrecedents(res);
+      setIsLoadingPrecedents(false);
+      setLoadingMessage("");
     });
+
+    setIsLoadingMetrics(true);
     fetchModelMetrics().then((res) => {
       if (res) {
         setModelMetrics(res.metrics);
         setFeatureImportance(res.featureImportance);
       }
+      setIsLoadingMetrics(false);
     });
   }, []);
 
-  // Handle role switch (with real JWT token exchange)
+  // Handle role switch
   const handleRoleChange = async (role: UserRole) => {
+    setLoadingMessage("Switching role, please wait...");
     setUserRole(role);
     const updatedUser = await switchDemoRole(role);
     if (updatedUser) {
       setCurrentUser(updatedUser);
     }
+    setLoadingMessage("");
   };
 
   // Handle logout
@@ -171,12 +185,22 @@ export default function CaseLensApp() {
   };
 
   const handleNavigateToResearch = (query?: string) => {
-    if (query) setResearchQuery(query);
+    if (query) {
+      setResearchQuery(query);
+      setIsLoadingPrecedents(true);
+      setLoadingMessage("Searching precedent database...");
+      searchPrecedents(query, "hybrid").then(res => {
+        setPrecedents(res);
+        setIsLoadingPrecedents(false);
+        setLoadingMessage("");
+      });
+    }
     setActiveTab("research");
   };
 
-  // Register New Case (persists to backend database)
+  // Register New Case via API
   const handleAddNewCase = async (newCaseData: Partial<CourtCase>) => {
+    setLoadingMessage("Registering case in database...");
     try {
       const created = await registerNewCase({
         caseNo: newCaseData.caseNo || `NEW/${new Date().getFullYear()}`,
@@ -191,13 +215,15 @@ export default function CaseLensApp() {
         setCases((prev) => [created, ...prev]);
         setSelectedCaseId(created.id);
         setActiveTab("case-detail");
+        setLoadingMessage("");
         return;
       }
     } catch (err) {
-      console.warn("Backend registration failed, adding to local state:", err);
+      console.warn("Case registration error:", err);
     }
 
-    // Client-side fallback if network fails
+    // Client-side fallback
+    setLoadingMessage("");
     const newCase: CourtCase = {
       id: `case-${Date.now()}`,
       caseNo: newCaseData.caseNo || "NEW/2024",
@@ -221,17 +247,9 @@ export default function CaseLensApp() {
         priorityScore: 70.0,
         confidenceIntervalDays: [95, 145],
         precedentConfidence: 0.8,
-        shapFactors: [
-          {
-            feature: "Fresh Registration",
-            impact: "increases_delay",
-            impactDays: 25,
-            plainEnglishReason: "Initial docket admission notice required.",
-          },
-        ],
+        shapFactors: [{ feature: "Fresh Registration", impact: "increases_delay", impactDays: 25, plainEnglishReason: "Initial docket admission notice required." }],
       },
     };
-
     setCases((prev) => [newCase, ...prev]);
     setSelectedCaseId(newCase.id);
     setActiveTab("case-detail");
@@ -239,6 +257,16 @@ export default function CaseLensApp() {
 
   return (
     <div className="min-h-screen bg-[#fcfbf9] text-[#171a1d] flex flex-col font-sans selection:bg-[#1c3838] selection:text-white">
+      {/* Global loading toast */}
+      {loadingMessage && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-[#1c3838] text-white text-xs font-mono px-5 py-3 rounded-lg shadow-xl border border-[#2d5555] animate-pulse">
+          <svg className="w-4 h-4 animate-spin shrink-0" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          {loadingMessage}
+        </div>
+      )}
       {/* Real Institutional Header */}
       <Header
         currentRole={userRole}
@@ -278,6 +306,7 @@ export default function CaseLensApp() {
               precedents={precedents}
               initialQuery={researchQuery}
               onSelectCaseWithPrecedent={handleSelectCase}
+              isLoading={isLoadingPrecedents}
             />
           )}
 
@@ -316,6 +345,7 @@ export default function CaseLensApp() {
             <ModelReportView
               metrics={modelMetrics}
               featureImportance={featureImportance}
+              isLoading={isLoadingMetrics}
             />
           )}
 
